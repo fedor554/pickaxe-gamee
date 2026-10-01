@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Falling Pickaxes Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+        canvas {
+            background: #62a3d0;
+            image-rendering: pixelated;
+        }
+        /* Стилизация интерфейса поверх игры */
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 40px 15px;
+            color: white;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+        .ui-right-bar {
+            position: absolute;
+            right: 12px;
+            bottom: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 18px;
+        }
+        .ui-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .ui-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            margin-bottom: 4px;
+            backdrop-filter: blur(2px);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Overlay интерфейса социальных сетей -->
+    <div class="ui-overlay">
+        <div class="ui-right-bar">
+            <div class="ui-btn">
+                <div class="ui-icon" style="background:#ff3b5c; font-weight:bold;">+</div>
+            </div>
+            <div class="ui-btn">
+                <div class="ui-icon">❤️</div>
+                <span>38.2K</span>
+            </div>
+            <div class="ui-btn">
+                <div class="ui-icon">💬</div>
+                <span>412</span>
+            </div>
+            <div class="ui-btn">
+                <div class="ui-icon">🔖</div>
+                <span>1.8K</span>
+            </div>
+            <div class="ui-btn">
+                <div class="ui-icon">↪️</div>
+                <span>240</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+    const aspectRatio = 9 / 16;
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    if (w / h > aspectRatio) {
+        w = h * aspectRatio;
+    } else {
+        h = w / aspectRatio;
+    }
+    canvas.width = w;
+    canvas.height = h;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Генерация базовых процедурных текстур для блоков
+function createBlockTexture(color, border, detailColor) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 16;
+    cvs.height = 16;
+    const cx = cvs.getContext('2d');
+    cx.fillStyle = color;
+    cx.fillRect(0, 0, 16, 16);
+    
+    cx.fillStyle = border;
+    cx.fillRect(0, 0, 16, 1);
+    cx.fillRect(0, 0, 1, 16);
+    
+    if (detailColor) {
+        cx.fillStyle = detailColor;
+        cx.fillRect(3, 4, 3, 3);
+        cx.fillRect(9, 2, 4, 3);
+        cx.fillRect(5, 10, 4, 3);
+        cx.fillRect(11, 11, 3, 3);
+    }
+    return cvs;
+}
+
+const textures = {
+    stone: createBlockTexture('#737373', '#555555', '#333333'),
+    coal: createBlockTexture('#666666', '#444444', '#111111'),
+    gold: createBlockTexture('#737373', '#555555', '#fcee4b'),
+    diamond: createBlockTexture('#737373', '#555555', '#4dedf3'),
+    emerald: createBlockTexture('#737373', '#555555', '#55ff55'),
+    tnt: createBlockTexture('#db321d', '#a3200e', '#ffffff')
+};
+
+const COLS = 10;
+const ROWS = 20;
+let blockSize = canvas.width / COLS;
+let grid = [];
+
+function initGrid() {
+    grid = [];
+    const types = ['stone', 'coal', 'gold', 'diamond', 'emerald', 'tnt'];
+    for (let r = 0; r < ROWS; r++) {
+        let row = [];
+        for (let c = 0; c < COLS; c++) {
+            // Оставляем проход сверху
+            if (r < 3 && (c > 2 && c < 7)) {
+                row.push(null);
+            } else {
+                let type = types[Math.floor(Math.random() * types.length)];
+                row.push({
+                    type: type,
+                    hp: type === 'tnt' ? 1 : (type === 'diamond' ? 4 : 2)
+                });
+            }
+        }
+        grid.push(row);
+    }
+}
+
+// Конфигурация 3 кирок с ХП счетчиками
+let pickaxes = [
+    { x: canvas.width * 0.4, y: 50, vx: 2.2, vy: 1.5, color: '#ff3333', hp: 398, maxHp: 400, angle: 0 },
+    { x: canvas.width * 0.5, y: 30, vx: -1.8, vy: 2.0, color: '#33ff57', hp: 381, maxHp: 400, angle: 0 },
+    { x: canvas.width * 0.6, y: 70, vx: 1.2, vy: 1.8, color: '#33d4ff', hp: 115, maxHp: 150, angle: 0 }
+];
+
+const gravity = 0.18;
+const bounce = 0.65;
+
+function update() {
+    blockSize = canvas.width / COLS;
+
+    pickaxes.forEach(p => {
+        p.vy += gravity;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.angle += p.vx * 0.05;
+
+        // Отскок от стен
+        if (p.x < 15 || p.x > canvas.width - 15) {
+            p.vx *= -1;
+            p.x = Math.max(15, Math.min(canvas.width - 15, p.x));
+        }
+
+        // Взаимодействие с сеткой блоков
+        let c = Math.floor(p.x / blockSize);
+        let r = Math.floor(p.y / blockSize);
+
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c]) {
+            let block = grid[r][c];
+            block.hp -= 1;
+            p.hp = Math.max(0, p.hp - 1);
+
+            if (block.hp <= 0) {
+                grid[r][c] = null;
+            }
+
+            p.vy *= -bounce;
+            p.vx += (Math.random() - 0.5) * 2.5;
+        }
+
+        // Повторный запуск при падении за нижний край
+        if (p.y > canvas.height + 40) {
+            p.y = -20;
+            p.vy = 1;
+            p.x = canvas.width / 2 + (Math.random() - 0.5) * 80;
+        }
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Отрисовка сетки блоков
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            let b = grid[r][c];
+            if (b) {
+                let img = textures[b.type];
+                ctx.drawImage(img, c * blockSize, r * blockSize, blockSize, blockSize);
+            }
+        }
+    }
+
+    // Отрисовка кирок и счетчиков HP
+    pickaxes.forEach(p => {
+        // Отрисовка счетчика HP над киркой
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 15px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 4;
+        ctx.fillText(`❤️ ${p.hp}/${p.maxHp}`, p.x, p.y - 25);
+        ctx.shadowBlur = 0;
+
+        // Отрисовка самой кирки
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+
+        // Ручка
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-10, 10);
+        ctx.lineTo(8, -8);
+        ctx.stroke();
+
+        // Набалдашник кирки
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(8, -8, 12, Math.PI * 1.1, Math.PI * 1.8);
+        ctx.stroke();
+
+        ctx.restore();
+    });
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+initGrid();
+loop();
+
+// Нажатие на экран сбрасывает поле
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    initGrid();
+});
+canvas.addEventListener('click', () => {
+    initGrid();
+});
+</script>
+</body>
+</html>
